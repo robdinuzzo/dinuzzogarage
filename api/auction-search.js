@@ -1,55 +1,55 @@
-// MarqueWatch: optional server-side aggregated search for publicly indexed auction listings.
-// Configure BRAVE_SEARCH_API_KEY in Vercel. Never expose the secret to the client.
-// Index search is discovery only: it does not certify current auction status.
-const DOMAINS=[
-['Bring a Trailer','bringatrailer.com'],
-['Cars & Bids','carsandbids.com'],
-['PCARMARKET','pcarmarket.com'],
-['Hemmings','hemmings.com'],
-['Hagerty','hagerty.com'],
-['Bonhams','bonhams.com'],
-["RM Sotheby's",'rmsothebys.com'],
-["Gooding Christie's",'goodingco.com'],
-['Broad Arrow','broadarrowauctions.com'],
-['eBay Motors','ebay.com'],
-['Facebook Marketplace','facebook.com'],
-['Collecting Cars','collectingcars.com']
+// MarqueWatch on-demand discovery powered exclusively by Nimble Search API v2.
+// Set NIMBLE_API_KEY in the Vercel project environment, never in browser code.
+// Search result discovery is not proof a listing is active or an offer to scrape restricted platforms.
+const SOURCES=[
+ ['Bring a Trailer','bringatrailer.com'],['Cars & Bids','carsandbids.com'],
+ ['PCARMARKET','pcarmarket.com'],['Hemmings','hemmings.com'],
+ ['Hagerty','hagerty.com'],['Bonhams','bonhams.com'],
+ ["RM Sotheby's",'rmsothebys.com'],["Gooding Christie's",'goodingco.com'],
+ ['Broad Arrow','broadarrowauctions.com'],['eBay Motors','ebay.com'],
+ ['Facebook Marketplace','facebook.com'],['Collecting Cars','collectingcars.com']
 ];
-const labelForHost=host=>DOMAINS.find(([,d])=>host===d||host.endsWith('.'+d))?.[0]||null;
-const clean=s=>String(s||'').trim().slice(0,100).replace(/[\x00-\x1f]/g,' ');
+const safe=s=>String(s||'').trim().replace(/[\x00-\x1f]/g,' ').slice(0,100);
+function sourceOf(host){return SOURCES.find(([,domain])=>host===domain||host.endsWith('.'+domain))?.[0]||null}
+function matchVehicle(title,description,make,model){const s=(title+' '+description).toLowerCase();return [make,model].every(term=>term.toLowerCase().split(/\s+/).some(part=>part.length>1&&s.includes(part)))}
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
- if(!process.env.BRAVE_SEARCH_API_KEY)return res.status(503).json({enabled:false,results:[],message:'Live aggregation is not configured yet. Add BRAVE_SEARCH_API_KEY to Vercel to enable on-demand searching; direct source search links remain available.'});
- const make=clean(req.query.make),model=clean(req.query.model),year=Number(req.query.year),trim=clean(req.query.trim),mode=clean(req.query.mode);
- if(!make||!model||!Number.isInteger(year)||year<1886||year>2035)return res.status(400).json({enabled:true,message:'Enter a valid vehicle make, model and year.'});
- const yearTerm=mode==='generation'?'':mode==='near'?String(year-2)+'..'+String(year+2):String(year);
- const terms=[yearTerm,make,model,trim].filter(Boolean).join(' ');
- const groups=[DOMAINS.slice(0,4),DOMAINS.slice(4,8),DOMAINS.slice(8,12)];
+ if(!process.env.NIMBLE_API_KEY)return res.status(503).json({enabled:false,provider:'Nimble',results:[],message:'Nimble is not configured yet. Add NIMBLE_API_KEY in the Vercel project environment. You can still open the auction-site search links.'});
+ const make=safe(req.query.make),model=safe(req.query.model),year=Number(req.query.year),trim=safe(req.query.trim),mode=safe(req.query.mode);
+ if(!make||!model||!Number.isInteger(year)||year<1886||year>2035)return res.status(400).json({enabled:true,provider:'Nimble',message:'A valid year, make, and model are required.'});
+ const yearTerm=mode==='generation'?'':mode==='near'?('('+[year-2,year-1,year,year+1,year+2].join(' OR ')+')'):String(year);
+ const phrase=[yearTerm,make,model,trim].filter(Boolean).join(' ');
+ // Three scoped requests: reduce irrelevant results and make source coverage explicit.
+ const groups=[SOURCES.slice(0,4),SOURCES.slice(4,8),SOURCES.slice(8,12)];
  try{
-  const all=await Promise.all(groups.map(async group=>{
-   const query=terms+' ('+group.map(([,domain])=>'site:'+domain).join(' OR ')+')';
-   const url='https://api.search.brave.com/res/v1/web/search?'+new URLSearchParams({q:query,count:'20',search_lang:'en',safesearch:'moderate'}).toString();
-   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),7500);
-   try{
-    const r=await fetch(url,{headers:{'Accept':'application/json','X-Subscription-Token':process.env.BRAVE_SEARCH_API_KEY},signal:controller.signal});
-    if(!r.ok)throw new Error('Search provider returned '+r.status);
-    const json=await r.json();
-    return (json.web?.results||[]).map(item=>{
-     try{
-      const link=new URL(item.url);
-      if(link.protocol!=='https:'&&link.protocol!=='http:')return null;
-      const source=labelForHost(link.hostname.toLowerCase());
-      if(!source)return null;
-      return {title:String(item.title||'Auction listing').replace(/<[^>]*>/g,'').slice(0,220),url:link.href,source,note:String(item.description||'').replace(/<[^>]*>/g,'').slice(0,340)}
-     }catch(e){return null}
-    }).filter(Boolean)
-   }finally{clearTimeout(timer)}
-  }));
-  const seen=new Set();
-  const results=all.flat().filter(item=>{const key=item.url.replace(/\?.*$/,'').replace(/\/$/,'');if(seen.has(key))return false;seen.add(key);return true});
-  return res.status(200).json({enabled:true,query:terms,results:results.slice(0,50),checkedAt:new Date().toISOString(),note:'Search-engine-indexed links are not verified active listings. Check the auction page for live status.'});
- }catch(err){
-  return res.status(502).json({enabled:true,results:[],message:'Live search provider unavailable. Please use the direct source links and try again later.'});
+ const batches=await Promise.all(groups.map(async group=>{
+  const query=phrase+' ('+group.map(([,domain])=>'site:'+domain).join(' OR ')+')';
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),14000);
+  try{
+   const response=await fetch('https://sdk.nimbleway.com/v2/search',{
+    method:'POST',headers:{'Authorization':'Bearer '+process.env.NIMBLE_API_KEY,'Content-Type':'application/json'},
+    body:JSON.stringify({query,focus:'general',search_depth:'standard',max_results:15}),signal:controller.signal
+   });
+   if(!response.ok)throw new Error('Nimble returned '+response.status);
+   const data=await response.json();
+   return Array.isArray(data.results)?data.results:[];
+  }finally{clearTimeout(timer)}
+ }));
+ const dedup=new Set(),results=[];
+ for(const item of batches.flat()){
+  try{
+   const u=new URL(item.url||'');if(!['https:','http:'].includes(u.protocol))continue;
+   const source=sourceOf(u.hostname.toLowerCase());if(!source)continue;
+   const title=String(item.title||'Auction result').replace(/<[^>]*>/g,'').slice(0,200);
+   const note=String(item.description||item.snippet||'').replace(/<[^>]*>/g,'').slice(0,340);
+   if(!matchVehicle(title,note,make,model))continue;
+   const key=u.origin+u.pathname.replace(/\/$/,'');if(dedup.has(key))continue;dedup.add(key);
+   results.push({title,url:u.href,source,note});
+  }catch(e){}
+ }
+ return res.status(200).json({enabled:true,provider:'Nimble',query:phrase,results:results.slice(0,45),checkedAt:new Date().toISOString(),message:'Nimble search discovery: verify listing year, activity and availability directly with the source.'});
+ }catch(e){
+ return res.status(502).json({enabled:true,provider:'Nimble',results:[],message:'Nimble Search is currently unavailable or the API key is invalid. Check Vercel configuration and try again.'});
  }
 }
