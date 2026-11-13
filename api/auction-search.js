@@ -41,10 +41,27 @@ function isVehicleListing(url,source,title,note){
  return true;
 }
 
+// Conservative status classification. A source's URL alone does not establish a live auction.
+function classifyListing(url,source,title,description,item){
+ const path=url.pathname.toLowerCase(),body=(title+' '+description).toLowerCase();
+ const classified=source==='Facebook Marketplace'
+  ||(source==='Hemmings'&&path.startsWith('/classifieds/'))
+  ||(source==='Hagerty'&&/\/marketplace\/(classified|listing)\//.test(path))
+  ||(source==='eBay Motors'&&/\b(?:buy it now|fixed price|classified ad)\b/i.test(body));
+ if(classified)return 'classified';
+ const explicitClosed= /\b(?:sold for|sold at|sold on|winning bid|auction ended|auction closed|auction complete|auction concluded|final bid|winning bidder|hammer price|not sold|no sale|reserve not met|passed in|bidding ended|bidding closed|closed auction)\b/i.test(body)
+ ||/\b(?:past auction|past sale|archived auction)\b/i.test(body);
+ if(explicitClosed)return 'results';
+ const explicitLive=/\b(?:live auction|auction is live|bidding is open|bid now|place a bid|current bid|ends in|ending in|time left|auction ends|auction closes|bidding ends|bidding closes|active auction)\b/i.test(body);
+ if(explicitLive)return 'live';
+ return 'unverified';
+}
+
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
  if(!process.env.NIMBLE_API_KEY)return res.status(503).json({enabled:false,provider:'Nimble',results:[],message:'Nimble is not configured yet. Add NIMBLE_API_KEY in the Vercel project environment. You can still open the auction-site search links.'});
+ const category=['live','results','classified'].includes(safe(req.query.category))?safe(req.query.category):'live';
  const make=safe(req.query.make),model=safe(req.query.model)==='All Models'?'':safe(req.query.model),yearMin=Number(req.query.yearMin??req.query.year),yearMax=Number(req.query.yearMax??req.query.year),trim=safe(req.query.trim);
  if(!make||!Number.isInteger(yearMin)||!Number.isInteger(yearMax)||yearMin<1886||yearMax>2035||yearMin>yearMax)return res.status(400).json({enabled:true,provider:'Nimble',message:'A valid make, minimum year, and maximum year are required.'});
  const yearTerm=yearMin===yearMax?String(yearMin):yearMax-yearMin<=15?'('+Array.from({length:yearMax-yearMin+1},(_,i)=>yearMin+i).join(' OR ')+')':'';
@@ -53,7 +70,8 @@ export default async function handler(req,res){
  const groups=[SOURCES.slice(0,4),SOURCES.slice(4,8),SOURCES.slice(8,12)];
  try{
  const batches=await Promise.all(groups.map(async group=>{
-  const query=phrase+' (auction OR "for sale" OR listing) ('+group.map(([,domain])=>'site:'+domain).join(' OR ')+') -stories -articles -guides -news -blog';
+  const context=category==='results'?'(sold OR "auction results" OR "winning bid" OR "final bid" OR "auction ended")':category==='classified'?'("for sale" OR classified OR "buy it now" OR listing)':'("live auction" OR "current bid" OR "bid now" OR "auction ends" OR bidding)';
+  const query=phrase+' '+context+' ('+group.map(([,domain])=>'site:'+domain).join(' OR ')+') -stories -articles -guides -news -blog';
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),14000);
   try{
    const response=await fetch('https://sdk.nimbleway.com/v2/search',{
@@ -74,13 +92,15 @@ export default async function handler(req,res){
    const note=String(item.description||item.snippet||'').replace(/<[^>]*>/g,'').slice(0,340);
    if(!isVehicleListing(u,source,title,note))continue;
    if(!matchVehicle(title,note,make,model))continue;
+   const listingCategory=classifyListing(u,source,title,note,item);
+   if(listingCategory!==category)continue;
    const years=(title+' '+note).match(/\b(?:18|19|20)\d{2}\b/g)?.map(Number)||[];
    if(years.length&& !years.some(y=>y>=yearMin&&y<=yearMax))continue;
    const key=u.origin+u.pathname.replace(/\/$/,'');if(dedup.has(key))continue;dedup.add(key);
-   results.push({title,url:u.href,source,note});
+   results.push({title,url:u.href,source,note,category:listingCategory,verifiedStatus:false});
   }catch(e){}
  }
- return res.status(200).json({enabled:true,provider:'Nimble',query:phrase,results:results.slice(0,45),checkedAt:new Date().toISOString(),message:'Only individual auction or for-sale listing pages are shown. Listing status must still be verified on the source website.'});
+ return res.status(200).json({enabled:true,provider:'Nimble',category,query:phrase,results:results.slice(0,45),checkedAt:new Date().toISOString(),message:'Only individual listing pages with category signals are shown. Live/closed status is inferred from indexed text and must be confirmed at the source.'});
  }catch(e){
  return res.status(502).json({enabled:true,provider:'Nimble',results:[],message:'Nimble Search is currently unavailable or the API key is invalid. Check Vercel configuration and try again.'});
  }
