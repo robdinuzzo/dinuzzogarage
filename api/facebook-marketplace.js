@@ -20,7 +20,8 @@ function parseMarketplace(html,markdown,make,model){
   if(!/^\d{8,20}$/.test(id)||listings.has(id))return;
   const segment=htmlText(decode(context)).slice(0,700);
   const requested=[make,model].filter(Boolean);
-  if(!requested.every(x=>segment.toLowerCase().includes(x.toLowerCase())))return;
+  const normalize=x=>String(x).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+  if(!requested.every(x=>normalize(segment).includes(normalize(x))))return;
   const price=segment.match(/\$[\d,]+(?:\.\d{2})?/);
   const titleMatch=segment.match(new RegExp('(?:19|20)\\d{2}[^$|•\\n]{0,110}','i'));
   const title=(titleMatch?.[0]||segment.slice(0,135)).trim();
