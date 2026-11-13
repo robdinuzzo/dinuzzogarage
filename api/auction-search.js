@@ -11,7 +11,7 @@ const SOURCES=[
 ];
 const safe=s=>String(s||'').trim().replace(/[\x00-\x1f]/g,' ').slice(0,100);
 function sourceOf(host){return SOURCES.find(([,domain])=>host===domain||host.endsWith('.'+domain))?.[0]||null}
-function matchVehicle(title,description,make,model){const s=(title+' '+description).toLowerCase();return [make,model].every(term=>term.toLowerCase().split(/\s+/).some(part=>part.length>1&&s.includes(part)))}
+function matchVehicle(title,description,make,model){const s=(title+' '+description).toLowerCase();return [make,model].filter(Boolean).every(term=>term.toLowerCase().split(/\s+/).some(part=>part.length>1&&s.includes(part)))}
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
