@@ -49,8 +49,8 @@ function classifyListing(url,source,title,description,item){
   ||(source==='Hagerty'&&/\/marketplace\/(classified|listing)\//.test(path))
   ||(source==='eBay Motors'&&/\b(?:buy it now|fixed price|classified ad)\b/i.test(body));
  if(classified)return 'classified';
- const explicitClosed= /\b(?:sold for|sold at|sold on|winning bid|auction ended|auction closed|auction complete|auction concluded|final bid|winning bidder|hammer price|not sold|no sale|reserve not met|passed in|bidding ended|bidding closed|closed auction)\b/i.test(body)
- ||/\b(?:past auction|past sale|archived auction)\b/i.test(body);
+ const explicitClosed= /\b(?:sold for|sold at|sold on|winning bid|auction ended|auction closed|auction complete|auction concluded|final bid|winning bidder|hammer price|not sold|no sale|reserve not met|passed in|bidding ended|bidding closed|closed auction|closed on|ended on|bid to|sold to|auction result)\b/i.test(body)
+ ||/\b(?:past auction|past sale|archived auction|closed on|sold on|bid to|auction result)\b/i.test(body);
  if(explicitClosed)return 'results';
  const explicitLive=/\b(?:live auction|auction is live|bidding is open|bid now|place a bid|current bid|ends in|ending in|time left|auction ends|auction closes|bidding ends|bidding closes|active auction)\b/i.test(body);
  if(explicitLive)return 'live';
@@ -125,6 +125,37 @@ async function verifyLiveCandidates(items,key){
  return results.filter(Boolean);
 }
 
+
+// Historical results must be confirmed closed/sold, not discarded because snippets omit status.
+function closedFromDocument(html,title,note){
+ const meta=metaContents(html);
+ // Small text window around BaT's auction result panel and page-level metadata.
+ const around=html.match(/Auction Result[\\s\\S]{0,2000}/i)?.[0]||'';
+ const body=[title,note,meta,around].join(' ').replace(/<[^>]+>/g,' ');
+ return /\\b(?:auction ended|auction result|bid to|sold for|sold at|closed on|reserve not met|winning bid|final bid|auction concluded|unsold|not sold)\\b/i.test(body);
+}
+async function verifyCompletedCandidates(items,key){
+ const accepted=[],unknown=[];
+ for(const item of items.slice(0,35)){
+  if(classifyListing(new URL(item.url),item.source,item.title,item.note,{})==='results'){accepted.push({...item,category:'results',verifiedStatus:false});}
+  else unknown.push(item);
+ }
+ const chosen=unknown.slice(0,14);
+ let next=0;
+ async function worker(){while(next<chosen.length){
+  const item=chosen[next++],controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6500);
+  try{
+   const r=await fetch('https://sdk.nimbleway.com/v2/extract',{method:'POST',
+    headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
+    body:JSON.stringify({url:item.url,formats:['html'],render:false}),signal:controller.signal});
+   if(r.ok&&closedFromDocument(extractDocument(await r.json()),item.title,item.note))
+    accepted.push({...item,category:'results',verifiedStatus:true});
+  }catch(e){}finally{clearTimeout(timer)}
+ }}
+ await Promise.all(Array.from({length:Math.min(5,chosen.length)},()=>worker()));
+ return accepted.slice(0,45);
+}
+
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
@@ -136,25 +167,36 @@ export default async function handler(req,res){
  if(!make||[yearMin,yearMax].some(y=>y!==null&&(!Number.isInteger(y)||y<1886||y>2035))||(yearMin!==null&&yearMax!==null&&yearMin>yearMax))return res.status(400).json({enabled:true,provider:'Nimble',message:'Enter a valid make and optional year bounds (minimum no later than maximum).'});
  const yearTerm=yearMin!==null&&yearMax!==null?(yearMin===yearMax?String(yearMin):yearMax-yearMin<=15?'('+Array.from({length:yearMax-yearMin+1},(_,i)=>yearMin+i).join(' OR ')+')':''):'';
  const phrase=[yearTerm,make,model,trim].filter(Boolean).join(' ');
- // Three scoped requests: reduce irrelevant results and make source coverage explicit.
- const groups=[SOURCES.slice(0,4),SOURCES.slice(4,8),SOURCES.slice(8,12)];
- try{
- const batches=await Promise.all(groups.map(async group=>{
-  const context=category==='results'?'(sold OR "auction results" OR "winning bid" OR "final bid" OR "auction ended")':category==='classified'?'("for sale" OR classified OR "buy it now" OR listing)':'("live auction" OR "current bid" OR "bid now" OR "auction ends" OR bidding)';
-  const query=phrase+' '+context+' ('+group.map(([,domain])=>'site:'+domain).join(' OR ')+') -stories -articles -guides -news -blog';
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),14000);
+ // Query individual listing pages directly. Compound OR-site queries previously returned
+ // too few BaT results and swallowed model-level archive listings.
+ const preferred=category==='results'
+  ?['site:bringatrailer.com/listing/','site:carsandbids.com/auctions/','site:collectingcars.com','site:hemmings.com']
+  :category==='live'
+  ?['site:bringatrailer.com/listing/','site:carsandbids.com/auctions/','site:pcarmarket.com','site:hagerty.com']
+  :['site:hemmings.com/classifieds/listing/','site:ebay.com/itm/','site:facebook.com/marketplace/item/','site:collectingcars.com'];
+ const discoveryQueries=preferred.map(site=>phrase+' '+site+' '+(category==='results'?'auction sold closed ended':category==='live'?'auction bidding ends':'for sale'));
+ // Second pass spans the remaining auction houses.
+ discoveryQueries.push(phrase+' '+(category==='results'?'auction result sold closed':category==='live'?'live auction current bid ends':'classified for sale')+
+  ' ('+SOURCES.slice(4,9).map(([,domain])=>'site:'+domain).join(' OR ')+')');
+ async function searchNimble(query){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),11000);
   try{
    const response=await fetch('https://sdk.nimbleway.com/v2/search',{
-    method:'POST',headers:{'Authorization':'Bearer '+process.env.NIMBLE_API_KEY,'Content-Type':'application/json'},
-    body:JSON.stringify({query,focus:'general',search_depth:'standard',max_results:15}),signal:controller.signal
+    method:'POST',headers:{Authorization:'Bearer '+process.env.NIMBLE_API_KEY,'Content-Type':'application/json'},
+    body:JSON.stringify({query,focus:'general',search_depth:'standard',max_results:30}),signal:controller.signal
    });
    if(!response.ok)throw new Error('Nimble returned '+response.status);
    const data=await response.json();
-   return Array.isArray(data.results)?data.results:[];
+   return Array.isArray(data.results)?data.results:Array.isArray(data.data?.results)?data.data.results:[];
   }finally{clearTimeout(timer)}
- }));
+ }
+ try{
+ const batches=await Promise.allSettled(discoveryQueries.map(searchNimble));
+ const discovered=batches.filter(x=>x.status==='fulfilled').flatMap(x=>x.value);
+ if(!discovered.length&&batches.every(x=>x.status==='rejected'))
+  throw new Error('All discovery requests failed');
  const dedup=new Set(),results=[];
- for(const item of batches.flat()){
+ for(const item of discovered){
   try{
    const u=new URL(item.url||'');if(!['https:','http:'].includes(u.protocol))continue;
    const source=sourceOf(u.hostname.toLowerCase());if(!source)continue;
@@ -163,17 +205,19 @@ export default async function handler(req,res){
    if(!isVehicleListing(u,source,title,note))continue;
    if(!matchVehicle(title,note,make,model))continue;
    const listingCategory=classifyListing(u,source,title,note,item);
-   if(category==='live'&&listingCategory==='results')continue;
-   if(category!=='live'&&listingCategory!==category)continue;
-   if(category==='live'&&listingCategory==='classified')continue;
+   if(category==='live'&&(listingCategory==='results'||listingCategory==='classified'))continue;
+   if(category==='classified'&&listingCategory!=='classified')continue;
+   if(category==='results'&&listingCategory==='classified')continue;
+   // Results with no status signal remain candidates pending listing-page validation.
    const years=(title+' '+note).match(/\b(?:18|19|20)\d{2}\b/g)?.map(Number)||[];
    if(years.length&&(yearMin!==null||yearMax!==null)&&!years.some(y=>(yearMin===null||y>=yearMin)&&(yearMax===null||y<=yearMax)))continue;
    const key=u.origin+u.pathname.replace(/\/$/,'');if(dedup.has(key))continue;dedup.add(key);
    results.push({title,url:u.href,source,note,category:listingCategory,verifiedStatus:false});
   }catch(e){}
  }
- const finalResults=category==='live'?await verifyLiveCandidates(results,process.env.NIMBLE_API_KEY):results.slice(0,45);
- return res.status(200).json({enabled:true,provider:'Nimble',category,query:phrase,results:finalResults,checkedAt:new Date().toISOString(),message:category==='live'?'Live auctions require a future closing time confirmed from the listing page. Unverifiable auctions are excluded.':'Results were categorized from indexed page metadata. Verify details at the source.'});
+ const finalResults=category==='live'?await verifyLiveCandidates(results,process.env.NIMBLE_API_KEY):
+   category==='results'?await verifyCompletedCandidates(results,process.env.NIMBLE_API_KEY):results.slice(0,45);
+ return res.status(200).json({enabled:true,provider:'Nimble',category,query:phrase,results:finalResults,checkedAt:new Date().toISOString(),message:category==='live'?'Live auctions require a future closing time confirmed from the listing page. Unverifiable auctions are excluded.':category==='results'?'Historical listings include completed-sale signals and checked archive pages; verify final sale prices on the source.':'Classified listings are identified by source and listing URL.'});
  }catch(e){
  return res.status(502).json({enabled:true,provider:'Nimble',results:[],message:'Nimble Search is currently unavailable or the API key is invalid. Check Vercel configuration and try again.'});
  }
