@@ -66,9 +66,9 @@ function extractDocument(data){
 }
 function metaContents(html){
  const out=[];
- for(const tag of html.match(/<meta\\b[^>]*>/gi)||[]){
+ for(const tag of html.match(/<meta\b[^>]*>/gi)||[]){
   const props={};
-  for(const pair of tag.matchAll(/([\\w:-]+)\\s*=\\s*(['"])(.*?)\\2/g))props[pair[1].toLowerCase()]=pair[3];
+  for(const pair of tag.matchAll(/([\w:-]+)\s*=\s*(['"])(.*?)\2/g))props[pair[1].toLowerCase()]=pair[3];
   if(/^(description|og:description|twitter:description|og:title)$/i.test(props.name||props.property||''))out.push(props.content||'');
  }
  return out.join(' ').replace(/<[^>]*>/g,' ').slice(0,1800);
@@ -77,13 +77,13 @@ function endTimes(html){
  const matches=[];
  // Auction-close fields from structured data and front-end auction configuration.
  const patterns=[
-  /["'](?:endDate|endsAt|endTime|endTimestamp|auctionEnd|auction_end|auctionEndTime|auction_end_time|closingDate|closeTime|end_time|auction_ends_at)["']\\s*[:=]\\s*["']?([0-9]{10,13}|20\\d{2}-\\d{2}-\\d{2}[T ][0-9:.+-]{5,25})/gi,
-  /(?:data-(?:auction-end|end-time|ends-at|end-date|closing-time|end-timestamp))\\s*=\\s*["']([^"']{10,40})["']/gi,
+  /["'](?:endDate|endsAt|endTime|endTimestamp|auctionEnd|auction_end|auctionEndTime|auction_end_time|closingDate|closeTime|end_time|auction_ends_at)["']\s*[:=]\s*["']?([0-9]{10,13}|20\d{2}-\d{2}-\d{2}[T ][0-9:.+-]{5,25})/gi,
+  /(?:data-(?:auction-end|end-time|ends-at|end-date|closing-time|end-timestamp))\s*=\s*["']([^"']{10,40})["']/gi,
   /<time[^>]*datetime=["']([^"']+)["'][^>]*(?:>[^<]*(?:ends|closes|bidding)|data-(?:auction|end))/gi
  ];
  for(const pattern of patterns)for(const m of html.matchAll(pattern)){
   const raw=m[1];const num=Number(raw);
-  let time=Number.isFinite(num)&&/^\\d{10,13}$/.test(raw)?(raw.length===10?num*1000:num):Date.parse(raw);
+  let time=Number.isFinite(num)&&/^\d{10,13}$/.test(raw)?(raw.length===10?num*1000:num):Date.parse(raw);
   if(Number.isFinite(time))matches.push(time);
  }
  return matches;
@@ -93,12 +93,12 @@ function verifyLiveFromDocument(html,title,note,now=Date.now()){
  const meta=metaContents(html);
  const summary=(title+' '+note+' '+meta).toLowerCase();
  // A known end-state on the auction itself rules out active bidding.
- const closed=/\\b(?:sold for|sold on|winning bid|auction ended|auction closed|bidding closed|bidding ended|reserve not met|not sold|auction concluded|final bid|hammer price)\\b/i;
+ const closed=/\b(?:sold for|sold on|winning bid|auction ended|auction closed|bidding closed|bidding ended|reserve not met|not sold|auction concluded|final bid|hammer price)\b/i;
  if(closed.test(summary))return null;
  const times=endTimes(html).filter(t=>t>now+30000&&t<now+1000*60*60*24*120);
  if(!times.length)return null;
  // Distinguish currently-biddable auctions from announced upcoming events.
- const active=/\\b(?:current bid|bid now|place a bid|bidding is open|time left|auction ends|auction closes|bidding ends|ends in|live auction|active auction)\\b/i;
+ const active=/\b(?:current bid|bid now|place a bid|bidding is open|time left|auction ends|auction closes|bidding ends|ends in|live auction|active auction)\b/i;
  const htmlFront=html.slice(0,200000);
  if(!active.test(summary)&&!active.test(htmlFront.replace(/<[^>]+>/g,' ').slice(0,10000)))return null;
  return new Date(Math.min(...times)).toISOString();
