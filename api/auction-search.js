@@ -114,7 +114,7 @@ function priceInfo(text,category){
  const t=String(text||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/gi,' ').slice(0,150000);
  const find=patterns=>{for(const regex of patterns){const m=t.match(regex);if(m){const price=money(m[1]);if(price)return price}}return null};
  if(category==='results'){
-  const sold=find([/\b(?:sold for|sold at|sale price|hammer price|winning bid)\s*(?:USD|US)?\s*[:\-]?\s*\$\s*([\d,]+(?:\.\d{2})?)/i,/\b(?:sold for|sale price|hammer price)\s*(?:USD|US)\s*([\d,]+)/i]);
+  const sold=find([/\b(?:sold for|sold at|sale price|hammer price|winning bid)\s*(?:USD|US)?\s*[:\-]?\s*\$\s*([\d,]+(?:\.\d{2})?)/i,/\b(?:sold for|sale price|hammer price|winning bid)\s*(?:USD|US)\s*([\d,]+)/i,/\b(?:winning bid)\s*[:\-]?\s*(?:USD|US)?\s*\$\s*([\d,]+)/i]);
   const notSold=/\b(?:not sold|reserve not met|bid to|unsold|passed in)\b/i.test(t);
   return sold?{soldAmount:sold,priceLabel:'Sold for'}:notSold?{saleStatus:'Not sold'}:{};
  }
@@ -122,8 +122,23 @@ function priceInfo(text,category){
  if(category==='classified'){let price=find([/\b(?:asking price|list price|listed at|price|asking)\s*[:\-]?\s*(?:USD|US)?\s*\$\s*([\d,]+)/i,/\b(?:for sale|classified)\s*(?:at|for)?\s*\$\s*([\d,]+)/i]);if(!price&&!/\b(?:sold for|auction ended|winning bid)\b/i.test(t)){const amounts=[...t.matchAll(/\$\s*([\d,]{3,})\b/g)];if(amounts.length===1)price=money(amounts[0][1])}return price?{price,priceLabel:'Asking price'}:{}}
  return {};
 }
+function dateFromAuctionPage(text,now=Date.now()){
+ const t=String(text||'').replace(/<[^>]+>/g,' ').replace(/&(?:nbsp|amp);/gi,' ').replace(/\s+/g,' ').slice(0,30000);
+ const parse=raw=>{const value=Date.parse(raw);return Number.isFinite(value)&&value<=now+86400000&&value>=Date.parse('1900-01-01')?new Date(value).toISOString():null};
+ // BaT: "Sold for USD $61,000 on 10/28/26" or "Sold for USD $61,000 on 10/28/2026"
+ const short=t.match(/\b(?:sold for|bid to|closed on|auction ended|auction closed|ended on|sold on|winning bid)[^.!?\n]{0,100}?\b(?:on\s+)?(0?[1-9]|1[0-2])\/([0-2]?\d|3[01])\/(\d{2}|\d{4})\b/i);
+ if(short){const year=Number(short[3])<100?2000+Number(short[3]):Number(short[3]);const date=parse(year+'-'+short[1].padStart(2,'0')+'-'+short[2].padStart(2,'0')+'T12:00:00Z');if(date)return date}
+ // A plain U.S. numeric date is acceptable when accompanied by an explicit auction result.
+ if(/\b(?:auction result|sold for|auction ended|winning bid|reserve not met)\b/i.test(t)){
+  const m=t.match(/\b(0?[1-9]|1[0-2])\/([0-2]?\d|3[01])\/(\d{4}|\d{2})\b/);
+  if(m){const year=Number(m[3])<100?2000+Number(m[3]):Number(m[3]);const date=parse(year+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0')+'T12:00:00Z');if(date)return date}
+ }
+ return null;
+}
+
 function auctionDate(text,now=Date.now()){
  const t=String(text||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').slice(0,30000);
+ const numeric=dateFromAuctionPage(t,now);if(numeric)return numeric;
  const patterns=[
   /\b(?:closed on|sold on|ended on|auction ended|auction closed|bidding ended|sale date|auction date|enddate|closed at)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}(?:T[\d:.+-Z]+)?)/i,
   /\b(?:closed on|sold on|ended on|auction ended|auction closed|bidding ended|sale date|auction date)\s*[:\-]?\s*((?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+\d{1,2},?\s+\d{4})/i,
@@ -190,7 +205,7 @@ async function verifyCompletedCandidates(items,key,lookbackDays){
    const html=await fetchAuctionHTML(item.url,key,6500);
    if(html&&closedFromDocument(html,item.title,item.note)){
     const meta=metaContents(html);
-    const excerpt=html.match(/(?:Auction Result|Sold for|Bid to|Closed on)[\s\S]{0,1600}/i)?.[0]||'';
+    const excerpt=html.match(/(?:Auction Result|Sold for|Bid to|Closed on)[\s\S]{0,2400}/i)?.[0]||'';
     const primary=[meta,excerpt,item.note,item.title].join(' ');
     closedAt=auctionDate(primary,now)||closedAt;
     result={...withPricing(item,'results',primary),category:'results',closedAt,verifiedStatus:true};
@@ -233,6 +248,14 @@ export default async function handler(req,res){
   ?['site:bringatrailer.com/listing/','site:carsandbids.com/auctions/','site:pcarmarket.com','site:hagerty.com']
   :['site:hemmings.com/classifieds/listing/','site:ebay.com/itm/','site:facebook.com/marketplace/item/','site:collectingcars.com'];
  const discoveryQueries=preferred.map(site=>phrase+' '+site+(category==='live'?' bidding':'') );
+ // Separate searches for exact vehicle-year/model matches and BaT sold archives;
+ // broad site-restricted searches can prioritize unrelated recent auction stories.
+ if(category==='results'){
+  const exact=[yearMin!==null&&yearMin===yearMax?String(yearMin):'',make,model].filter(Boolean).join(' ');
+  discoveryQueries.unshift('"'+exact+'" site:bringatrailer.com/listing/ "sold for"');
+  discoveryQueries.push(exact+' site:bringatrailer.com/listing/ "auction ended"');
+  if(lookbackDays&&lookbackDays<=90)discoveryQueries.push(exact+' site:bringatrailer.com/listing/ 2026 "sold"');
+ }
  // Second pass spans the remaining auction houses.
  discoveryQueries.push(phrase+' '+(category==='results'?'auction result sold closed':category==='live'?'live auction current bid ends':'classified for sale')+
   ' ('+SOURCES.slice(4,9).map(([,domain])=>'site:'+domain).join(' OR ')+')');
