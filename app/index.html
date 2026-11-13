@@ -142,10 +142,10 @@ document.querySelectorAll('[data-category]').forEach(tab=>tab.addEventListener('
 }));
 el('refresh-results').addEventListener('click',async()=>{
  const w=getSelectedOrFirst();if(!w){notify('Create a watch first');return}
- const button=el('refresh-results'),selectedCategory=category,watchId=w.id,radius=activeRadius?{...activeRadius}:null;
+ const button=el('refresh-results'),selectedCategory=category,watchId=w.id,radius=activeRadius?{...activeRadius}:null,selectedLookback=lookbackDays;
  button.disabled=true;button.textContent=selectedCategory==='classified'?'Searching sources + Facebook…':'Checking…';
  try{
-  const shared=new URLSearchParams({make:w.make,model:w.model==='All Models'?'':w.model,yearMin:String(range(w).min??''),yearMax:String(range(w).max??''),trim:w.trim||'',category:selectedCategory});if(selectedCategory==='results')shared.set('lookbackDays',String(lookbackDays));
+  const shared=new URLSearchParams({make:w.make,model:w.model==='All Models'?'':w.model,yearMin:String(range(w).min??''),yearMax:String(range(w).max??''),trim:w.trim||'',category:selectedCategory});if(selectedCategory==='results')shared.set('lookbackDays',String(selectedLookback));
   if(radius){shared.set('zip',radius.zip);shared.set('miles',String(radius.miles))}
   const standard=fetch('/api/auction-search?'+shared.toString()).then(async response=>({ok:response.ok,data:await response.json()})).catch(()=>({ok:false,data:{message:'Nimble auction search unavailable.'}}));
   const fb=selectedCategory==='classified'?fetch('/api/facebook-marketplace?'+shared.toString()).then(async response=>({ok:response.ok,data:await response.json()})).catch(()=>({ok:false,data:{status:'extract-error',message:'Facebook extraction unavailable.'}})):Promise.resolve(null);
@@ -155,15 +155,15 @@ el('refresh-results').addEventListener('click',async()=>{
   const dedup=new Map();
   for(const item of [...regular,...fbItems])if(validURL(item.url)&&item.category===selectedCategory)dedup.set(item.url.split('?')[0].replace(/\/$/,''),item);
   const found=[...dedup.values()].map(x=>({...x,watchId}));
-  fetchedByCategory.set(watchId+':'+selectedCategory+(selectedCategory==='results'?':'+lookbackDays:''),found);
-  if(category===selectedCategory&&selected===watchId){remote=found;render()}
+  fetchedByCategory.set(watchId+':'+selectedCategory+(selectedCategory==='results'?':'+selectedLookback:''),found);
+  if(category===selectedCategory&&selected===watchId&&(selectedCategory!=='results'||lookbackDays===selectedLookback)){remote=found;render()}
   const notices=[];
   if(!ordinary.ok)notices.push(ordinary.data.message||'Auction search unavailable.');
   if(facebook){const f=facebook.data||{};notices.push('Facebook: '+(f.message||'No public listing cards available.'));
     if(f.status==='login-required')notices.push('Your signed-in Facebook results may not be publicly extractable.');
   }
   if(radius&&ordinary.data?.locationFilter)notices.push(ordinary.data.locationFilter.unknownExcluded+' indexed listings excluded because location was unknown.');
-  if(category===selectedCategory&&selected===watchId)el('results-mode').textContent='Nimble search · '+new Date().toLocaleString()+'. '+(notices.join(' ')||ordinary.data.message||'Verify listing details at source.');
+  if(category===selectedCategory&&selected===watchId&&(selectedCategory!=='results'||lookbackDays===selectedLookback))el('results-mode').textContent='Nimble search · '+new Date().toLocaleString()+'. '+(notices.join(' ')||ordinary.data.message||'Verify listing details at source.');
   notify(found.length+' '+({live:'live auction',results:'auction result',classified:'classified listing'}[selectedCategory])+' matches');
  }catch(e){el('results-mode').textContent='Search unavailable. Direct marketplace links still work.';notify('Could not search listings')}
  finally{button.disabled=false;button.textContent='↻ Check for listings'}
