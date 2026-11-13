@@ -254,7 +254,7 @@ export default async function handler(req,res){
   const exact=[yearMin!==null&&yearMin===yearMax?String(yearMin):'',make,model].filter(Boolean).join(' ');
   discoveryQueries.unshift('"'+exact+'" site:bringatrailer.com/listing/ "sold for"');
   discoveryQueries.push(exact+' site:bringatrailer.com/listing/ "auction ended"');
-  if(lookbackDays&&lookbackDays<=90)discoveryQueries.push(exact+' site:bringatrailer.com/listing/ 2026 "sold"');
+  if(lookbackDays&&lookbackDays<=90)discoveryQueries.push(exact+' site:bringatrailer.com/listing/ '+new Date().getUTCFullYear()+' "sold"');
  }
  // Second pass spans the remaining auction houses.
  discoveryQueries.push(phrase+' '+(category==='results'?'auction result sold closed':category==='live'?'live auction current bid ends':'classified for sale')+
@@ -301,7 +301,7 @@ export default async function handler(req,res){
  const radius=radiusEnabled?await withinRadius(finalResults,radiusZip,radiusMiles):null;
  if(radius?.error)return res.status(400).json({enabled:true,provider:'Nimble',message:radius.error});
  const filteredResults=radiusEnabled?radius.results:finalResults;
- return res.status(200).json({enabled:true,provider:'Nimble',category,query:phrase,results:filteredResults,locationFilter:radiusEnabled?{zip:radiusZip,miles:radiusMiles,unknownExcluded:radius.unknown,distanceType:'straight-line',origin:radius.origin}:null,checkedAt:new Date().toISOString(),message:category==='live'?'Live auctions require a future closing time confirmed from the listing page. Unverifiable auctions are excluded.':category==='results'?'Historical listings include completed-sale signals and checked archive pages; verify final sale prices on the source.':'Classified listings are identified by source and listing URL.'});
+ return res.status(200).json({enabled:true,provider:'Nimble',category,query:phrase,results:filteredResults,discoveredCount:discovered.length,individualListingsFound:results.length,verifiedCount:finalResults.length,locationFilter:radiusEnabled?{zip:radiusZip,miles:radiusMiles,unknownExcluded:radius.unknown,distanceType:'straight-line',origin:radius.origin}:null,checkedAt:new Date().toISOString(),message:category==='live'?'Live auctions require a future closing time confirmed from the listing page. Unverifiable auctions are excluded.':category==='results'?'Historical listings include completed-sale signals and checked archive pages; verify final sale prices on the source.':'Classified listings are identified by source and listing URL.'});
  }catch(e){
  return res.status(502).json({enabled:true,provider:'Nimble',results:[],message:'Nimble Search is currently unavailable or the API key is invalid. Check Vercel configuration and try again.'});
  }
