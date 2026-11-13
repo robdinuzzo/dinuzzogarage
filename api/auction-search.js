@@ -1,3 +1,4 @@
+import {withinRadius,zipLocation} from '../lib/zip-radius.js';
 // MarqueWatch on-demand discovery powered exclusively by Nimble Search API v2.
 // Set NIMBLE_API_KEY in the Vercel project environment, never in browser code.
 // Search result discovery is not proof a listing is active or an offer to scrape restricted platforms.
@@ -161,6 +162,14 @@ export default async function handler(req,res){
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
  if(!process.env.NIMBLE_API_KEY)return res.status(503).json({enabled:false,provider:'Nimble',results:[],message:'Nimble is not configured yet. Add NIMBLE_API_KEY in the Vercel project environment. You can still open the auction-site search links.'});
  const category=['live','results','classified'].includes(safe(req.query.category))?safe(req.query.category):'live';
+ const radiusZip=safe(req.query.zip);
+ const radiusRaw=safe(req.query.miles);
+ const radiusEnabled=radiusZip!==''||radiusRaw!=='';
+ const radiusMiles=Number(radiusRaw);
+ if(radiusEnabled&&(!/^\d{5}$/.test(radiusZip)||!Number.isFinite(radiusMiles)||radiusMiles<=0||radiusMiles>3000))
+  return res.status(400).json({enabled:true,provider:'Nimble',message:'Enter a valid 5-digit U.S. ZIP and a radius between 1 and 3,000 miles.'});
+ if(radiusEnabled&&!(await zipLocation(radiusZip)))
+  return res.status(400).json({enabled:true,provider:'Nimble',message:'ZIP code not found in the U.S. postal database.'});
  const make=safe(req.query.make),model=safe(req.query.model)==='All Models'?'':safe(req.query.model),trim=safe(req.query.trim);
  const readYear=value=>value===undefined||value===null||value===''?null:Number(value);
  const yearMin=readYear(req.query.yearMin??req.query.year),yearMax=readYear(req.query.yearMax??req.query.year);
@@ -217,7 +226,10 @@ export default async function handler(req,res){
  }
  const finalResults=category==='live'?await verifyLiveCandidates(results,process.env.NIMBLE_API_KEY):
    category==='results'?await verifyCompletedCandidates(results,process.env.NIMBLE_API_KEY):results.slice(0,45);
- return res.status(200).json({enabled:true,provider:'Nimble',category,query:phrase,results:finalResults,checkedAt:new Date().toISOString(),message:category==='live'?'Live auctions require a future closing time confirmed from the listing page. Unverifiable auctions are excluded.':category==='results'?'Historical listings include completed-sale signals and checked archive pages; verify final sale prices on the source.':'Classified listings are identified by source and listing URL.'});
+ const radius=radiusEnabled?await withinRadius(finalResults,radiusZip,radiusMiles):null;
+ if(radius?.error)return res.status(400).json({enabled:true,provider:'Nimble',message:radius.error});
+ const filteredResults=radiusEnabled?radius.results:finalResults;
+ return res.status(200).json({enabled:true,provider:'Nimble',category,query:phrase,results:filteredResults,locationFilter:radiusEnabled?{zip:radiusZip,miles:radiusMiles,unknownExcluded:radius.unknown,distanceType:'straight-line',origin:radius.origin}:null,checkedAt:new Date().toISOString(),message:category==='live'?'Live auctions require a future closing time confirmed from the listing page. Unverifiable auctions are excluded.':category==='results'?'Historical listings include completed-sale signals and checked archive pages; verify final sale prices on the source.':'Classified listings are identified by source and listing URL.'});
  }catch(e){
  return res.status(502).json({enabled:true,provider:'Nimble',results:[],message:'Nimble Search is currently unavailable or the API key is invalid. Check Vercel configuration and try again.'});
  }
