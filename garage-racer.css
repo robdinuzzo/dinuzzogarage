@@ -1,0 +1,32 @@
+/* DiNuzzo Garage — 8-bit pit stop */
+#garage-arcade{position:relative;overflow:hidden;padding:58px 22px 70px;background:radial-gradient(ellipse at 50% 0%,#383728 0%,#1b1c19 60%);border-top:6px solid #b89c6e;color:#f1e9d3}
+#garage-arcade .arcade-inner{max-width:1120px;margin:auto;text-align:center}
+#garage-arcade .arcade-kicker{color:#bd9d68;font-weight:700;letter-spacing:.3em;text-transform:uppercase;font-size:11px}
+#garage-arcade h2{font:italic 500 clamp(34px,5vw,58px)/1.1 'Playfair Display',serif;margin:12px 0}
+#garage-arcade .arcade-desc{font-size:14px;color:#d9cdb6;margin:0 auto 28px;max-width:580px;line-height:1.6}
+#garage-arcade .arcade-shell{display:grid;grid-template-columns:minmax(0,390px) minmax(200px,260px);justify-content:center;gap:30px;align-items:center}
+#garage-arcade .arcade-machine{padding:13px;border:3px solid #c1a472;background:#111411;box-shadow:0 0 0 5px #403524,0 17px 38px #0009;border-radius:12px}
+#garage-arcade .arcade-screen{position:relative;background:#0d1517;overflow:hidden;border:3px solid #090d0c;image-rendering:pixelated}
+#garage-arcade canvas{width:100%;height:auto;display:block;image-rendering:pixelated;outline-offset:-4px;touch-action:manipulation}
+#garage-arcade .arcade-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#0d1215d9;padding:20px;z-index:2}
+#garage-arcade .arcade-overlay[hidden]{display:none}
+#garage-arcade .arcade-overlay strong{font:700 22px 'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:.17em;color:#f2db9e}
+#garage-arcade .arcade-overlay span{font-size:12px;color:#e2d6bb;line-height:1.5}
+#garage-arcade .arcade-play{background:#d4b77d;border:0;border-radius:3px;padding:12px 23px;color:#1b1c19;font:700 12px 'DM Sans',sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer}
+#garage-arcade .arcade-play:hover{background:#f3dba9}
+#garage-arcade .arcade-info{text-align:left}
+#garage-arcade .arcade-info h3{font:600 24px 'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:.12em;margin:0 0 18px}
+#garage-arcade .arcade-scores{display:grid;grid-template-columns:repeat(2,1fr);gap:11px;margin-bottom:21px}
+#garage-arcade .arcade-stat{background:#262720;border:1px solid #79674d;border-radius:4px;padding:14px 12px}
+#garage-arcade .arcade-stat span{display:block;text-transform:uppercase;letter-spacing:.1em;color:#d0b98b;font-size:10px}
+#garage-arcade .arcade-stat strong{display:block;color:#f5e7c4;font:700 27px 'Barlow Condensed',sans-serif;margin-top:4px}
+#garage-arcade .arcade-instructions{font-size:13px;line-height:1.8;color:#dacfb9;margin:0 0 17px}
+#garage-arcade .arcade-controls{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(2,48px);gap:7px;justify-content:center}
+#garage-arcade .arcade-controls button{background:#3e3d31;color:#f4e7c9;border:1px solid #ad9367;border-radius:7px;font-size:22px;cursor:pointer;touch-action:manipulation}
+#garage-arcade .arcade-controls button:active{background:#b69b70;color:#111}
+#garage-arcade .arcade-controls .up{grid-column:2;grid-row:1}
+#garage-arcade .arcade-controls .left{grid-column:1;grid-row:2}
+#garage-arcade .arcade-controls .down{grid-column:2;grid-row:2}
+#garage-arcade .arcade-controls .right{grid-column:3;grid-row:2}
+#garage-arcade .arcade-tagline{text-align:center;font:italic 16px 'Playfair Display',serif;color:#bba57d;margin-top:20px}
+@media(max-width:680px){#garage-arcade{padding:46px 17px 56px}#garage-arcade .arcade-shell{grid-template-columns:minmax(0,390px);gap:26px}#garage-arcade .arcade-info{text-align:center}#garage-arcade .arcade-info h3{margin-bottom:12px}#garage-arcade .arcade-scores{max-width:340px;margin:0 auto 13px}#garage-arcade .arcade-instructions{max-width:340px;margin:0 auto 13px}}
