@@ -16,9 +16,9 @@ export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
  if(!process.env.NIMBLE_API_KEY)return res.status(503).json({enabled:false,provider:'Nimble',results:[],message:'Nimble is not configured yet. Add NIMBLE_API_KEY in the Vercel project environment. You can still open the auction-site search links.'});
- const make=safe(req.query.make),model=safe(req.query.model),year=Number(req.query.year),trim=safe(req.query.trim),mode=safe(req.query.mode);
- if(!make||!model||!Number.isInteger(year)||year<1886||year>2035)return res.status(400).json({enabled:true,provider:'Nimble',message:'A valid year, make, and model are required.'});
- const yearTerm=mode==='generation'?'':mode==='near'?('('+[year-2,year-1,year,year+1,year+2].join(' OR ')+')'):String(year);
+ const make=safe(req.query.make),model=safe(req.query.model),yearMin=Number(req.query.yearMin??req.query.year),yearMax=Number(req.query.yearMax??req.query.year),trim=safe(req.query.trim);
+ if(!make||!model||!Number.isInteger(yearMin)||!Number.isInteger(yearMax)||yearMin<1886||yearMax>2035||yearMin>yearMax)return res.status(400).json({enabled:true,provider:'Nimble',message:'A valid make, model, minimum year, and maximum year are required.'});
+ const yearTerm=yearMin===yearMax?String(yearMin):yearMax-yearMin<=15?'('+Array.from({length:yearMax-yearMin+1},(_,i)=>yearMin+i).join(' OR ')+')':'';
  const phrase=[yearTerm,make,model,trim].filter(Boolean).join(' ');
  // Three scoped requests: reduce irrelevant results and make source coverage explicit.
  const groups=[SOURCES.slice(0,4),SOURCES.slice(4,8),SOURCES.slice(8,12)];
@@ -44,6 +44,8 @@ export default async function handler(req,res){
    const title=String(item.title||'Auction result').replace(/<[^>]*>/g,'').slice(0,200);
    const note=String(item.description||item.snippet||'').replace(/<[^>]*>/g,'').slice(0,340);
    if(!matchVehicle(title,note,make,model))continue;
+   const years=(title+' '+note).match(/\b(?:18|19|20)\d{2}\b/g)?.map(Number)||[];
+   if(years.length&& !years.some(y=>y>=yearMin&&y<=yearMax))continue;
    const key=u.origin+u.pathname.replace(/\/$/,'');if(dedup.has(key))continue;dedup.add(key);
    results.push({title,url:u.href,source,note});
   }catch(e){}
