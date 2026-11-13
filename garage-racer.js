@@ -17,18 +17,54 @@ function rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y
 function text(str,x,y,color,size=12,align='left'){ctx.fillStyle=color;ctx.font='bold '+size+'px monospace';ctx.textAlign=align;ctx.fillText(str,x,y)}
 function hud(){scoreEl.textContent=String(Math.floor(score)).padStart(4,'0');bestEl.textContent=String(best).padStart(4,'0');livesEl.textContent=Array(lives).fill('♥').join(' ');levelEl.textContent=String(level).padStart(2,'0')}
 function updateBest(){if(score>best){best=Math.floor(score);try{localStorage.setItem('dinuzzo-arcade-best',String(best))}catch(e){}}hud()}
-function drawJaguar(x,y){ // Purpose-built top-view 1953 Jaguar XK120 Fixed Head Coupe pixel sprite; front points up.
-ctx.save();ctx.translate(Math.round(x),Math.round(y)); 
-rect(-20,-22,6,12,'#111512');rect(14,-22,6,12,'#111512');rect(-20,14,6,13,'#111512');rect(14,14,6,13,'#111512');
-rect(-14,-31,28,62,'#10271d');rect(-12,-36,24,8,'#123c2e');rect(-16,-29,32,12,'#1d563e');
-rect(-18,-18,36,18,'#1c593f');rect(-16,0,32,18,'#1b513c');rect(-14,18,28,13,'#1a4937');
-rect(-10,-36,20,5,'#2b7556');rect(-13,-26,26,15,'#2a7957');rect(-10,-22,20,9,'#327d58');
-rect(-13,-8,26,23,'#d8c59c');rect(-10,-6,20,17,'#30444a');rect(-7,-5,14,7,'#4e6870');rect(-9,10,18,5,'#c0aa84');
-rect(-13,17,26,5,'#2f7450');rect(-9,22,18,9,'#17402f');
-rect(-3,-34,6,16,'#78ae82');rect(-2,-16,4,9,'#dabf83');
-rect(-13,-33,5,4,'#f0dfb6');rect(8,-33,5,4,'#f0dfb6');rect(-12,28,6,3,'#d55345');rect(6,28,6,3,'#d55345');
-rect(-15,-11,3,8,'#c7ad77');rect(12,-11,3,8,'#c7ad77');
-ctx.restore()}
+function drawJaguar(x,y){
+// 1953 XK120 Fixed Head Coupe, based on the supplied overhead reference.
+// Rotated so the narrow bonnet points UP; hand-pixelled in black with chrome brightwork.
+ctx.save();ctx.translate(Math.round(x),Math.round(y));
+const p=(points,color)=>{ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(points[0],points[1]);for(let i=2;i<points.length;i+=2)ctx.lineTo(points[i],points[i+1]);ctx.closePath();ctx.fill()};
+const R=(x,y,w,h,c)=>rect(x,y,w,h,c);
+const black='#101112',ink='#08090a',gloss='#2c2d30',edge='#6d7071',chrome='#b1aba0';
+// Wheels are tucked beneath the prominent flowing wings.
+R(-22,-24,6,15,ink);R(16,-24,6,15,ink);R(-23,19,7,16,ink);R(16,19,7,16,ink);
+R(-21,-21,3,8,'#484745');R(18,-21,3,8,'#484745');
+R(-22,23,3,8,'#484745');R(19,23,3,8,'#484745');
+// Full-width outer wings and broad rounded rear from the top reference.
+p([-8,-40,8,-40,14,-31,18,-17,21,1,23,23,21,34,16,41,7,44,-7,44,-16,41,-21,34,-23,23,-21,1,-18,-17,-14,-31],ink);
+p([-7,-38,7,-38,12,-29,16,-16,19,0,21,22,19,34,14,39,6,42,-6,42,-14,39,-19,34,-21,22,-19,0,-16,-16,-12,-29],black);
+// XK120 sweeping independent front fenders (not a generic rectangular car).
+p([-13,-29,-18,-24,-22,-11,-22,8,-17,14,-12,8,-10,-10],gloss);
+p([13,-29,18,-24,22,-11,22,8,17,14,12,8,10,-10],gloss);
+R(-20,-21,2,15,'#494949');R(18,-21,2,15,'#494949');
+R(-21,20,2,12,'#393b3b');R(19,20,2,12,'#393b3b');
+// Long tapered bonnet: the defining XK120 proportion.
+p([-7,-36,7,-36,10,-26,12,-13,13,-2,-13,-2,-12,-13,-10,-26], '#191a1b');
+p([-3,-36,3,-36,7,-27,8,-14,9,-4,-9,-4,-8,-14,-7,-27], '#292a2d');
+R(-1,-35,2,27,'#626362');
+R(-7,-6,14,2,'#72716e'); // bonnet shutline
+R(-3,-39,6,3,chrome);R(-1,-41,2,2,'#ded5ba'); // narrow grille at nose
+R(-14,-30,5,4,chrome);R(9,-30,5,4,chrome); // headlamp pods
+R(-12,-28,3,2,'#e7ddc0');R(9,-28,3,2,'#e7ddc0');
+// Distinctive narrow coupe roof, screen and curved greenhouse.
+p([-15,-3,15,-3,17,7,18,20,13,30,-13,30,-18,20,-17,7], '#343538');
+p([-13,-3,13,-3,14,2,-14,2],chrome); // windscreen surround
+p([-12,-1,12,-1,12,6,-12,6], '#5a676c'); // glass and reflected light
+R(-1,0,2,6,'#aeb4af'); // split screen central bar
+p([-12,8,12,8,14,20,11,27,-11,27,-14,20], '#171c20');
+p([-9,9,9,9,10,19,-10,19], '#343d41');
+R(-15,8,2,13,'#7f7e76');R(13,8,2,13,'#7f7e76');
+R(-12,26,24,2,chrome); // rear window outline
+R(-11,28,22,4,'#3c3d3e');
+// Rear deck: broad, rounded, chrome-bound trunk and tiny GB badge.
+p([-14,32,14,32,15,37,10,40,-10,40,-15,37], '#212225');
+R(-9,34,18,1,'#5a5d5d');
+R(-4,36,8,4,'#dfd3b4');R(-2,37,4,2,ink); // oval GB emblem
+R(-16,37,5,3,'#ba4540');R(11,37,5,3,'#ba4540');
+R(-12,42,24,2,chrome);R(-8,43,16,1,ink);
+// Delicate wing-top reflections: black paint remains unmistakably black.
+R(-17,-14,2,22,'#505154');R(15,-14,2,22,'#505154');
+R(-17,16,2,11,'#424445');R(15,16,2,11,'#424445');
+ctx.restore()
+}
 function drawTraffic(x,y,color,oncoming,type){ctx.save();ctx.translate(Math.round(x),Math.round(y));if(oncoming)ctx.rotate(Math.PI);const w=type==='van'?40:32,h=type==='van'?70:58;
 rect(-w/2-2,-h/2+9,5,13,'#0b0e0d');rect(w/2-3,-h/2+9,5,13,'#0b0e0d');rect(-w/2-2,h/2-21,5,13,'#0b0e0d');rect(w/2-3,h/2-21,5,13,'#0b0e0d');
 rect(-w/2,-h/2,w,h,'#181c1b');rect(-w/2+3,-h/2+2,w-6,h-4,color);
