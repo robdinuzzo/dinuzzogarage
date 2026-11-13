@@ -130,9 +130,11 @@ export default async function handler(req,res){
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
  if(!process.env.NIMBLE_API_KEY)return res.status(503).json({enabled:false,provider:'Nimble',results:[],message:'Nimble is not configured yet. Add NIMBLE_API_KEY in the Vercel project environment. You can still open the auction-site search links.'});
  const category=['live','results','classified'].includes(safe(req.query.category))?safe(req.query.category):'live';
- const make=safe(req.query.make),model=safe(req.query.model)==='All Models'?'':safe(req.query.model),yearMin=Number(req.query.yearMin??req.query.year),yearMax=Number(req.query.yearMax??req.query.year),trim=safe(req.query.trim);
- if(!make||!Number.isInteger(yearMin)||!Number.isInteger(yearMax)||yearMin<1886||yearMax>2035||yearMin>yearMax)return res.status(400).json({enabled:true,provider:'Nimble',message:'A valid make, minimum year, and maximum year are required.'});
- const yearTerm=yearMin===yearMax?String(yearMin):yearMax-yearMin<=15?'('+Array.from({length:yearMax-yearMin+1},(_,i)=>yearMin+i).join(' OR ')+')':'';
+ const make=safe(req.query.make),model=safe(req.query.model)==='All Models'?'':safe(req.query.model),trim=safe(req.query.trim);
+ const readYear=value=>value===undefined||value===null||value===''?null:Number(value);
+ const yearMin=readYear(req.query.yearMin??req.query.year),yearMax=readYear(req.query.yearMax??req.query.year);
+ if(!make||[yearMin,yearMax].some(y=>y!==null&&(!Number.isInteger(y)||y<1886||y>2035))||(yearMin!==null&&yearMax!==null&&yearMin>yearMax))return res.status(400).json({enabled:true,provider:'Nimble',message:'Enter a valid make and optional year bounds (minimum no later than maximum).'});
+ const yearTerm=yearMin!==null&&yearMax!==null?(yearMin===yearMax?String(yearMin):yearMax-yearMin<=15?'('+Array.from({length:yearMax-yearMin+1},(_,i)=>yearMin+i).join(' OR ')+')':''):'';
  const phrase=[yearTerm,make,model,trim].filter(Boolean).join(' ');
  // Three scoped requests: reduce irrelevant results and make source coverage explicit.
  const groups=[SOURCES.slice(0,4),SOURCES.slice(4,8),SOURCES.slice(8,12)];
@@ -165,7 +167,7 @@ export default async function handler(req,res){
    if(category!=='live'&&listingCategory!==category)continue;
    if(category==='live'&&listingCategory==='classified')continue;
    const years=(title+' '+note).match(/\b(?:18|19|20)\d{2}\b/g)?.map(Number)||[];
-   if(years.length&& !years.some(y=>y>=yearMin&&y<=yearMax))continue;
+   if(years.length&&(yearMin!==null||yearMax!==null)&&!years.some(y=>(yearMin===null||y>=yearMin)&&(yearMax===null||y<=yearMax)))continue;
    const key=u.origin+u.pathname.replace(/\/$/,'');if(dedup.has(key))continue;dedup.add(key);
    results.push({title,url:u.href,source,note,category:listingCategory,verifiedStatus:false});
   }catch(e){}
