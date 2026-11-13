@@ -118,8 +118,8 @@ function priceInfo(text,category){
   const notSold=/\b(?:not sold|reserve not met|bid to|unsold|passed in)\b/i.test(t);
   return sold?{soldAmount:sold,priceLabel:'Sold for'}:notSold?{saleStatus:'Not sold'}:{};
  }
- if(category==='live'){const price=find([/\b(?:current bid|highest bid|bid currently|bidding at)\s*[:\-]?\s*(?:USD|US)?\s*\$\s*([\d,]+)/i]);return price?{price,priceLabel:'Current bid'}:{}}
- if(category==='classified'){const price=find([/\b(?:asking price|list price|listed at|price|asking)\s*[:\-]?\s*(?:USD|US)?\s*\$\s*([\d,]+)/i,/\b(?:for sale|classified)\s*(?:at|for)?\s*\$\s*([\d,]+)/i]);return price?{price,priceLabel:'Asking price'}:{}}
+ if(category==='live'){const price=find([/\b(?:current bid|highest bid|bid currently|bidding at)\s*[:\-]?\s*(?:USD|US)?\s*\$\s*([\d,]+)/i,/\$\s*([\d,]+)\s*(?:current bid|highest bid)/i]);return price?{price,priceLabel:'Current bid'}:{}}
+ if(category==='classified'){let price=find([/\b(?:asking price|list price|listed at|price|asking)\s*[:\-]?\s*(?:USD|US)?\s*\$\s*([\d,]+)/i,/\b(?:for sale|classified)\s*(?:at|for)?\s*\$\s*([\d,]+)/i]);if(!price&&!/\b(?:sold for|auction ended|winning bid)\b/i.test(t)){const amounts=[...t.matchAll(/\$\s*([\d,]{3,})\b/g)];if(amounts.length===1)price=money(amounts[0][1])}return price?{price,priceLabel:'Asking price'}:{}}
  return {};
 }
 function auctionDate(text,now=Date.now()){
