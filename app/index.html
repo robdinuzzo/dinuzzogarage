@@ -60,7 +60,8 @@ const watch=()=>watches.find(w=>w.id===selected);
 function read(key){try{const value=JSON.parse(localStorage.getItem(key));return Array.isArray(value)?value:[]}catch(e){return []}}
 function persist(){try{localStorage.setItem(STORE,JSON.stringify(watches));localStorage.setItem(SAVED,JSON.stringify(listings))}catch(e){notify('Browser storage is unavailable; changes may not persist.')}}
 function notify(msg){const box=el('toast');box.textContent=msg;box.hidden=false;clearTimeout(notify.timer);notify.timer=setTimeout(()=>box.hidden=true,3200)}
-function range(w){const min=Number(w.yearMin??w.year),max=Number(w.yearMax??w.year);return {min,max}}\nfunction title(w){const y=range(w);return y.min===y.max?y.min+' '+w.make+' '+w.model:y.min+'–'+y.max+' '+w.make+' '+w.model}
+function range(w){const min=Number(w.yearMin??w.year),max=Number(w.yearMax??w.year);return {min,max}}
+function title(w){const y=range(w);return y.min===y.max?y.min+' '+w.make+' '+w.model:y.min+'–'+y.max+' '+w.make+' '+w.model}
 function terms(w){const y=range(w);return [y.min===y.max?String(y.min):y.min+'..'+y.max,w.make,w.model,w.trim].filter(Boolean).join(' ')}
 function searchURL(s,w){const q=encodeURIComponent(terms(w));if(s.id==='ebay')return 'https://www.ebay.com/sch/i.html?_sacat=6001&_nkw='+q+'&_sop=10';if(s.id==='facebook')return 'https://www.facebook.com/marketplace/category/search/?query='+q;return 'https://www.google.com/search?q='+encodeURIComponent('site:'+s.domain+' '+terms(w)+' auction sale listing')+'&tbs=qdr:m'}
 function getSelectedOrFirst(){if(!watch()&&watches.length)selected=watches[0].id;return watch()}
