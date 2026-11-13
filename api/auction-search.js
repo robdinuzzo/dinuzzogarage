@@ -174,7 +174,7 @@ export default async function handler(req,res){
   :category==='live'
   ?['site:bringatrailer.com/listing/','site:carsandbids.com/auctions/','site:pcarmarket.com','site:hagerty.com']
   :['site:hemmings.com/classifieds/listing/','site:ebay.com/itm/','site:facebook.com/marketplace/item/','site:collectingcars.com'];
- const discoveryQueries=preferred.map(site=>phrase+' '+site+' '+(category==='results'?'auction sold closed ended':category==='live'?'auction bidding ends':'for sale'));
+ const discoveryQueries=preferred.map(site=>phrase+' '+site+(category==='live'?' bidding':'') );
  // Second pass spans the remaining auction houses.
  discoveryQueries.push(phrase+' '+(category==='results'?'auction result sold closed':category==='live'?'live auction current bid ends':'classified for sale')+
   ' ('+SOURCES.slice(4,9).map(([,domain])=>'site:'+domain).join(' OR ')+')');
