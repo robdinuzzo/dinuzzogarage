@@ -104,6 +104,45 @@ function verifyLiveFromDocument(html,title,note,now=Date.now()){
  if(!active.test(summary)&&!active.test(htmlFront.replace(/<[^>]+>/g,' ').slice(0,10000)))return null;
  return new Date(Math.min(...times)).toISOString();
 }
+
+function money(value){
+ if(!value)return null;
+ const raw=String(value).replace(/,/g,'').trim(),amount=Number(raw);
+ return Number.isFinite(amount)&&amount>=100&&amount<=100000000?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(amount):null;
+}
+function priceInfo(text,category){
+ const t=String(text||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/gi,' ').slice(0,150000);
+ const find=patterns=>{for(const regex of patterns){const m=t.match(regex);if(m){const price=money(m[1]);if(price)return price}}return null};
+ if(category==='results'){
+  const sold=find([/\b(?:sold for|sold at|sale price|hammer price|winning bid)\s*(?:USD|US)?\s*[:\-]?\s*\$\s*([\d,]+(?:\.\d{2})?)/i,/\b(?:sold for|sale price|hammer price)\s*(?:USD|US)\s*([\d,]+)/i]);
+  const notSold=/\b(?:not sold|reserve not met|bid to|unsold|passed in)\b/i.test(t);
+  return sold?{soldAmount:sold,priceLabel:'Sold for'}:notSold?{saleStatus:'Not sold'}:{};
+ }
+ if(category==='live'){const price=find([/\b(?:current bid|highest bid|bid currently|bidding at)\s*[:\-]?\s*(?:USD|US)?\s*\$\s*([\d,]+)/i]);return price?{price,priceLabel:'Current bid'}:{}}
+ if(category==='classified'){const price=find([/\b(?:asking price|list price|listed at|price|asking)\s*[:\-]?\s*(?:USD|US)?\s*\$\s*([\d,]+)/i,/\b(?:for sale|classified)\s*(?:at|for)?\s*\$\s*([\d,]+)/i]);return price?{price,priceLabel:'Asking price'}:{}}
+ return {};
+}
+function auctionDate(text,now=Date.now()){
+ const t=String(text||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').slice(0,30000);
+ const patterns=[
+  /\b(?:closed on|sold on|ended on|auction ended|auction closed|bidding ended|sale date|auction date|enddate|closed at)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}(?:T[\d:.+-Z]+)?)/i,
+  /\b(?:closed on|sold on|ended on|auction ended|auction closed|bidding ended|sale date|auction date)\s*[:\-]?\s*((?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+\d{1,2},?\s+\d{4})/i,
+  /\b(?:closed on|sold on|ended on|auction ended|auction closed|bidding ended|sale date|auction date)\s*[:\-]?\s*(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})/i,
+  /["'](?:endDate|auction_end_date|auctionEndDate|closedAt|dateClosed)["']\s*[:=]\s*["'](\d{4}-\d{2}-\d{2}(?:T[\d:.+-Z]+)?)/i
+ ];
+ for(const regex of patterns){const match=t.match(regex);if(!match)continue;const d=Date.parse(match[1]);if(Number.isFinite(d)&&d<=now+86400000&&d>=Date.parse('1900-01-01'))return new Date(d).toISOString()}
+ return null;
+}
+function withPricing(item,category,extra=''){
+ const pricing=priceInfo([extra,item.note,item.title].filter(Boolean).join(' '),category);
+ return {...item,...pricing};
+}
+async function fetchAuctionHTML(url,key,timeoutMs=6500){
+ const c=new AbortController(),timer=setTimeout(()=>c.abort(),timeoutMs);
+ try{const r=await fetch('https://sdk.nimbleway.com/v2/extract',{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({url,formats:['html'],render:false}),signal:c.signal});if(!r.ok)return '';return extractDocument(await r.json())}
+ catch(e){return ''}finally{clearTimeout(timer)}
+}
+
 async function verifyLiveAuction(item,key){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),7500);
  try{
@@ -112,9 +151,9 @@ async function verifyLiveAuction(item,key){
    body:JSON.stringify({url:item.url,formats:['html'],render:false}),signal:controller.signal
   });
   if(!response.ok)return null;
-  const data=await response.json();
-  const end=verifyLiveFromDocument(extractDocument(data),item.title,item.note);
-  return end?{...item,category:'live',verifiedStatus:true,endsAt:end,verifiedAt:new Date().toISOString()}:null;
+  const data=await response.json(),html=extractDocument(data);
+  const end=verifyLiveFromDocument(html,item.title,item.note);
+  return end?{...withPricing(item,'live',metaContents(html)),category:'live',verifiedStatus:true,endsAt:end,verifiedAt:new Date().toISOString()}:null;
  }catch(e){return null}finally{clearTimeout(timer)}
 }
 async function verifyLiveCandidates(items,key){
@@ -135,26 +174,34 @@ function closedFromDocument(html,title,note){
  const body=[title,note,meta,around].join(' ').replace(/<[^>]+>/g,' ');
  return /\b(?:auction ended|auction result|bid to|sold for|sold at|closed on|reserve not met|winning bid|final bid|auction concluded|unsold|not sold)\b/i.test(body);
 }
-async function verifyCompletedCandidates(items,key){
- const accepted=[],unknown=[];
- for(const item of items.slice(0,35)){
-  if(classifyListing(new URL(item.url),item.source,item.title,item.note,{})==='results'){accepted.push({...item,category:'results',verifiedStatus:false});}
-  else unknown.push(item);
- }
- const chosen=unknown.slice(0,14);
+async function verifyCompletedCandidates(items,key,lookbackDays){
+ const now=Date.now(),cutoff=lookbackDays?now-lookbackDays*86400000:null;
+ const selected=items.slice(0,36),out=new Array(selected.length);
  let next=0;
- async function worker(){while(next<chosen.length){
-  const item=chosen[next++],controller=new AbortController(),timer=setTimeout(()=>controller.abort(),6500);
-  try{
-   const r=await fetch('https://sdk.nimbleway.com/v2/extract',{method:'POST',
-    headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
-    body:JSON.stringify({url:item.url,formats:['html'],render:false}),signal:controller.signal});
-   if(r.ok&&closedFromDocument(extractDocument(await r.json()),item.title,item.note))
-    accepted.push({...item,category:'results',verifiedStatus:true});
-  }catch(e){}finally{clearTimeout(timer)}
+ async function worker(){while(next<selected.length){
+  const i=next++,item=selected[i];
+  const inferred=classifyListing(new URL(item.url),item.source,item.title,item.note,{})==='results';
+  let closedAt=auctionDate([item.title,item.note].join(' '),now);
+  let result=inferred?{...withPricing(item,'results'),category:'results',closedAt,verifiedStatus:false}:null;
+  // Enrich price/date and confirm unknown results against the listing page.
+  // An explicit lookback needs a known close date; if absent we try the page first.
+  const needsPage=(!inferred||!closedAt&&Boolean(cutoff)||!result?.soldAmount)&&i<20;
+  if(needsPage){
+   const html=await fetchAuctionHTML(item.url,key,6500);
+   if(html&&closedFromDocument(html,item.title,item.note)){
+    const meta=metaContents(html);
+    const excerpt=html.match(/(?:Auction Result|Sold for|Bid to|Closed on)[\s\S]{0,1600}/i)?.[0]||'';
+    const primary=[meta,excerpt,item.note,item.title].join(' ');
+    closedAt=auctionDate(primary,now)||closedAt;
+    result={...withPricing(item,'results',primary),category:'results',closedAt,verifiedStatus:true};
+   }
+  }
+  if(!result)return;
+  if(cutoff&&(!result.closedAt||Date.parse(result.closedAt)<cutoff))return;
+  out[i]=result;
  }}
- await Promise.all(Array.from({length:Math.min(5,chosen.length)},()=>worker()));
- return accepted.slice(0,45);
+ await Promise.all(Array.from({length:Math.min(5,selected.length)},()=>worker()));
+ return out.filter(Boolean).slice(0,45)
 }
 
 export default async function handler(req,res){
@@ -162,6 +209,8 @@ export default async function handler(req,res){
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
  if(!process.env.NIMBLE_API_KEY)return res.status(503).json({enabled:false,provider:'Nimble',results:[],message:'Nimble is not configured yet. Add NIMBLE_API_KEY in the Vercel project environment. You can still open the auction-site search links.'});
  const category=['live','results','classified'].includes(safe(req.query.category))?safe(req.query.category):'live';
+ const lookbackDays=Number(req.query.lookbackDays||0);
+ if(category==='results'&&(!Number.isInteger(lookbackDays)||lookbackDays<0||lookbackDays>36500))return res.status(400).json({enabled:true,provider:'Nimble',message:'Invalid auction-results history range.'});
  const radiusZip=safe(req.query.zip);
  const radiusRaw=safe(req.query.miles);
  const radiusEnabled=radiusZip!==''||radiusRaw!=='';
@@ -221,11 +270,11 @@ export default async function handler(req,res){
    const years=(title+' '+note).match(/\b(?:18|19|20)\d{2}\b/g)?.map(Number)||[];
    if(years.length&&(yearMin!==null||yearMax!==null)&&!years.some(y=>(yearMin===null||y>=yearMin)&&(yearMax===null||y<=yearMax)))continue;
    const key=u.origin+u.pathname.replace(/\/$/,'');if(dedup.has(key))continue;dedup.add(key);
-   results.push({title,url:u.href,source,note,category:listingCategory,verifiedStatus:false});
+   results.push(withPricing({title,url:u.href,source,note,category:listingCategory,verifiedStatus:false},category));
   }catch(e){}
  }
  const finalResults=category==='live'?await verifyLiveCandidates(results,process.env.NIMBLE_API_KEY):
-   category==='results'?await verifyCompletedCandidates(results,process.env.NIMBLE_API_KEY):results.slice(0,45);
+   category==='results'?await verifyCompletedCandidates(results,process.env.NIMBLE_API_KEY,lookbackDays):results.slice(0,45);
  const radius=radiusEnabled?await withinRadius(finalResults,radiusZip,radiusMiles):null;
  if(radius?.error)return res.status(400).json({enabled:true,provider:'Nimble',message:radius.error});
  const filteredResults=radiusEnabled?radius.results:finalResults;
