@@ -53,6 +53,8 @@ export default async function handler(req,res){
  if(req.method!=='GET')return res.status(405).json({message:'GET only'});
  if(!process.env.NIMBLE_API_KEY)return res.status(503).json({enabled:false,results:[],message:'Nimble API key is not configured.'});
  const make=clean(req.query.make),model=clean(req.query.model)==='All Models'?'':clean(req.query.model),zip=clean(req.query.zip),milesInput=clean(req.query.miles);
+ const readYear=x=>x===undefined||x===null||x===''?null:Number(x);
+ const yearMin=readYear(req.query.yearMin),yearMax=readYear(req.query.yearMax);
  if(!make||!model&&make.length<2)return res.status(400).json({results:[],message:'Select a make before searching Facebook.'});
  const filtered=Boolean(zip||milesInput),miles=Number(milesInput);
  if(filtered&&(!/^\d{5}$/.test(zip)||!Number.isFinite(miles)||miles<1||miles>3000))return res.status(400).json({results:[],message:'Enter a valid 5-digit ZIP and radius of 1 to 3,000 miles.'});
@@ -72,7 +74,7 @@ export default async function handler(req,res){
   if(!response.ok)return res.status(200).json({enabled:true,results:[],status:'extract-error',message:'Nimble could not retrieve this public Facebook Marketplace page ('+response.status+').',searchUrl:url.href});
   const payload=await response.json(),page=extractedContent(payload);
   if(!page.html&&!page.markdown)return res.status(200).json({enabled:true,results:[],status:'no-page-content',message:'Nimble returned no rendered HTML for Facebook Marketplace.',searchUrl:url.href});
-  const found=parseMarketplace(page.html,page.markdown,make,model);
+  const found=parseMarketplace(page.html,page.markdown,make,model).filter(item=>{if(yearMin===null&&yearMax===null)return true;const year=Number((item.title.match(/\b(?:18|19|20)\d{2}\b/)||[])[0]);return Number.isInteger(year)&&(yearMin===null||year>=yearMin)&&(yearMax===null||year<=yearMax)});
   if(!found.length)return res.status(200).json({enabled:true,results:[],status:restricted(page.html,page.markdown)?'login-required':'no-public-listings',message:restricted(page.html,page.markdown)?'Facebook requires a signed-in session for these search results. Nimble cannot access private listings through its public extraction endpoint.':'The public Facebook page returned no verifiable individual vehicle listing cards.',searchUrl:url.href});
   if(filtered){
    const location=await withinRadius(found,zip,miles);
