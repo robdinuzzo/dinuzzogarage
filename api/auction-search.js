@@ -130,9 +130,9 @@ async function verifyLiveCandidates(items,key){
 function closedFromDocument(html,title,note){
  const meta=metaContents(html);
  // Small text window around BaT's auction result panel and page-level metadata.
- const around=html.match(/Auction Result[\\s\\S]{0,2000}/i)?.[0]||'';
+ const around=html.match(/Auction Result[\s\S]{0,2000}/i)?.[0]||'';
  const body=[title,note,meta,around].join(' ').replace(/<[^>]+>/g,' ');
- return /\\b(?:auction ended|auction result|bid to|sold for|sold at|closed on|reserve not met|winning bid|final bid|auction concluded|unsold|not sold)\\b/i.test(body);
+ return /\b(?:auction ended|auction result|bid to|sold for|sold at|closed on|reserve not met|winning bid|final bid|auction concluded|unsold|not sold)\b/i.test(body);
 }
 async function verifyCompletedCandidates(items,key){
  const accepted=[],unknown=[];
