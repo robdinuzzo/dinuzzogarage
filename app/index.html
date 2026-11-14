@@ -195,14 +195,22 @@ el('refresh-results').addEventListener('click',async()=>{
   if(!ordinary.ok||!ordinary.data.enabled)notices.push(ordinary.data?.message||'Nimble search unavailable.');
   if(facebook?.data?.message)notices.push('Facebook: '+facebook.data.message);
   if(radius&&ordinary.data?.locationFilter?.unknownExcluded)notices.push(ordinary.data.locationFilter.unknownExcluded+' unknown locations excluded.');
-  if(c==='results'&&!found.length&&ordinary.ok)notices.push('Nimble found '+(ordinary.data.individualListingsFound??0)+' auction candidates; '+(ordinary.data.verifiedCount??0)+' passed the selected date range.');
+  if((c==='results'||c==='live')&&!found.length&&ordinary.ok)notices.push('Nimble found '+(ordinary.data.discoveredCount??0)+' search hits, '+(ordinary.data.individualListingsFound??0)+' listing candidates, and '+(ordinary.data.verifiedCount??0)+' verified '+(c==='results'?'closed':'live')+' auctions.');
   if(successes){
    saveSearchResults(w,c,selectedLookback,radius,found,notices.join(' ')||'Results are from Nimble. Confirm availability and prices at source.');
   }
   return {category:c,count:found.length,success:successes,notice:notices.join(' ')};
  }
  try{
-  const results=await Promise.all(categories.map(searchCategory));
+  const results=[];
+  // Nimble searches and page extraction are resource intensive. Run the three
+  // categories in order rather than saturating the same API account at once.
+  for(const c of categories){
+   button.textContent='Searching '+({live:'Live Auctions',results:'Auction Results',classified:'Classified Listings'}[c])+'…';
+   const result=await searchCategory(c);
+   results.push(result);
+   if(selected===watchId){restoreResults();render();el('results-mode').textContent='Checked '+results.length+' of 3 categories. '+cacheMessage()}
+  }
   const successes=results.filter(x=>x.success);
   if(selected===watchId){
    restoreResults();render();
