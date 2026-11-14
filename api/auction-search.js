@@ -173,10 +173,10 @@ async function verifyLiveAuction(item,key){
 }
 async function verifyLiveCandidates(items,key){
  // Keep bounded extraction costs and execution time. Unknown status is never called live.
- const selected=items.slice(0,12),results=new Array(selected.length);
+ const selected=items.slice(0,8),results=new Array(selected.length);
  let next=0;
  async function worker(){while(next<selected.length){const i=next++;results[i]=await verifyLiveAuction(selected[i],key)}}
- await Promise.all(Array.from({length:Math.min(6,selected.length)},()=>worker()));
+ await Promise.all(Array.from({length:Math.min(4,selected.length)},()=>worker()));
  return results.filter(Boolean);
 }
 
@@ -191,7 +191,7 @@ function closedFromDocument(html,title,note){
 }
 async function verifyCompletedCandidates(items,key,lookbackDays){
  const now=Date.now(),cutoff=lookbackDays?now-lookbackDays*86400000:null;
- const selected=items.slice(0,36),out=new Array(selected.length);
+ const selected=items.slice(0,24),out=new Array(selected.length);
  let next=0;
  async function worker(){while(next<selected.length){
   const i=next++,item=selected[i];
@@ -200,7 +200,7 @@ async function verifyCompletedCandidates(items,key,lookbackDays){
   let result=inferred?{...withPricing(item,'results'),category:'results',closedAt,verifiedStatus:false}:null;
   // Enrich price/date and confirm unknown results against the listing page.
   // An explicit lookback needs a known close date; if absent we try the page first.
-  const needsPage=(!inferred||!closedAt&&Boolean(cutoff)||!result?.soldAmount)&&i<20;
+  const needsPage=(!inferred||!closedAt&&Boolean(cutoff)||!result?.soldAmount)&&i<12;
   if(needsPage){
    const html=await fetchAuctionHTML(item.url,key,6500);
    if(html&&closedFromDocument(html,item.title,item.note)){
@@ -215,7 +215,7 @@ async function verifyCompletedCandidates(items,key,lookbackDays){
   if(cutoff&&(!result.closedAt||Date.parse(result.closedAt)<cutoff))return;
   out[i]=result;
  }}
- await Promise.all(Array.from({length:Math.min(5,selected.length)},()=>worker()));
+ await Promise.all(Array.from({length:Math.min(6,selected.length)},()=>worker()));
  return out.filter(Boolean).slice(0,45)
 }
 
@@ -242,23 +242,22 @@ export default async function handler(req,res){
  const phrase=[yearTerm,make,model,trim].filter(Boolean).join(' ');
  // Query individual listing pages directly. Compound OR-site queries previously returned
  // too few BaT results and swallowed model-level archive listings.
- const preferred=category==='results'
-  ?['site:bringatrailer.com/listing/','site:carsandbids.com/auctions/','site:collectingcars.com','site:hemmings.com']
-  :category==='live'
-  ?['site:bringatrailer.com/listing/','site:carsandbids.com/auctions/','site:pcarmarket.com','site:hagerty.com']
-  :['site:hemmings.com/classifieds/listing/','site:ebay.com/itm/','site:facebook.com/marketplace/item/','site:collectingcars.com'];
- const discoveryQueries=preferred.map(site=>phrase+' '+site+(category==='live'?' bidding':'') );
- // Separate searches for exact vehicle-year/model matches and BaT sold archives;
- // broad site-restricted searches can prioritize unrelated recent auction stories.
- if(category==='results'){
-  const exact=[yearMin!==null&&yearMin===yearMax?String(yearMin):'',make,model].filter(Boolean).join(' ');
-  discoveryQueries.unshift('"'+exact+'" site:bringatrailer.com/listing/ "sold for"');
-  discoveryQueries.push(exact+' site:bringatrailer.com/listing/ "auction ended"');
-  if(lookbackDays&&lookbackDays<=90)discoveryQueries.push(exact+' site:bringatrailer.com/listing/ '+new Date().getUTCFullYear()+' "sold"');
- }
- // Second pass spans the remaining auction houses.
- discoveryQueries.push(phrase+' '+(category==='results'?'auction result sold closed':category==='live'?'live auction current bid ends':'classified for sale')+
-  ' ('+SOURCES.slice(4,9).map(([,domain])=>'site:'+domain).join(' OR ')+')');
+ const exact=[yearMin!==null&&yearMin===yearMax?String(yearMin):'',make,model,trim].filter(Boolean).join(' ');
+ // Keep Nimble concurrency bounded. Previously seven simultaneous result searches
+ // multiplied by three simultaneous categories exhausted the request budget.
+ const discoveryQueries=category==='results'?[
+  exact+' site:bringatrailer.com/listing/ sold',
+  exact+' site:bringatrailer.com/listing/ "auction result"',
+  exact+' (site:carsandbids.com/auctions/ OR site:collectingcars.com) sold'
+ ]:category==='live'?[
+  exact+' site:bringatrailer.com/listing/ current bid',
+  exact+' (site:carsandbids.com/auctions/ OR site:pcarmarket.com) bidding',
+  exact+' site:bringatrailer.com/listing/ auction ends'
+ ]:[
+  exact+' (site:hemmings.com/classifieds/listing/ OR site:ebay.com/itm/) for sale',
+  exact+' (site:collectingcars.com OR site:hagerty.com/marketplace/) for sale',
+  exact+' site:facebook.com/marketplace/item/'
+ ];
  async function searchNimble(query){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),11000);
   try{
