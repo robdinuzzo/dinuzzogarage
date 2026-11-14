@@ -266,9 +266,9 @@ export default async function handler(req,res){
   try{
    const response=await fetch('https://sdk.nimbleway.com/v2/search',{
     method:'POST',headers:{Authorization:'Bearer '+process.env.NIMBLE_API_KEY,'Content-Type':'application/json'},
-    body:JSON.stringify({query,focus:'general',search_depth:'standard',max_results:30}),signal:controller.signal
+    body:JSON.stringify({query,focus:'general',search_depth:'lite',max_results:30}),signal:controller.signal
    });
-   if(!response.ok)throw new Error('Nimble returned '+response.status);
+   if(!response.ok)throw new Error('Nimble search HTTP '+response.status);
    const data=await response.json();
    return Array.isArray(data.results)?data.results:Array.isArray(data.data?.results)?data.data.results:[];
   }finally{clearTimeout(timer)}
@@ -277,7 +277,7 @@ export default async function handler(req,res){
  const batches=await Promise.allSettled(discoveryQueries.map(searchNimble));
  const discovered=batches.filter(x=>x.status==='fulfilled').flatMap(x=>x.value);
  if(!discovered.length&&batches.every(x=>x.status==='rejected'))
-  throw new Error('All discovery requests failed');
+  throw new Error('All Nimble search requests failed: '+batches.map(x=>String(x.reason?.message||'unknown')).join(', ').slice(0,250));
  const dedup=new Set(),results=[];
  for(const item of discovered){
   try{
@@ -305,6 +305,6 @@ export default async function handler(req,res){
  const filteredResults=radiusEnabled?radius.results:finalResults;
  return res.status(200).json({enabled:true,provider:'Nimble',category,query:phrase,results:filteredResults,discoveredCount:discovered.length,individualListingsFound:results.length,verifiedCount:finalResults.length,locationFilter:radiusEnabled?{zip:radiusZip,miles:radiusMiles,unknownExcluded:radius.unknown,distanceType:'straight-line',origin:radius.origin}:null,checkedAt:new Date().toISOString(),message:category==='live'?'Live auctions require a future closing time confirmed from the listing page. Unverifiable auctions are excluded.':category==='results'?'Historical listings include completed-sale signals and checked archive pages; verify final sale prices on the source.':'Classified listings are identified by source and listing URL.'});
  }catch(e){
- return res.status(502).json({enabled:true,provider:'Nimble',results:[],message:'Nimble Search is currently unavailable or the API key is invalid. Check Vercel configuration and try again.'});
+ return res.status(502).json({enabled:true,provider:'Nimble',results:[],message:'Nimble search failed: '+String(e.message||'Unknown upstream error').slice(0,270)+'. No auction results have been verified.'});
  }
 }
