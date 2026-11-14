@@ -139,6 +139,9 @@ function dateFromAuctionPage(text,now=Date.now()){
 function auctionDate(text,now=Date.now()){
  const t=String(text||'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').slice(0,30000);
  const numeric=dateFromAuctionPage(t,now);if(numeric)return numeric;
+ // BaT search titles can say "sold for $61,000 on October 28, 2026".
+ const soldOn=t.match(/\b(?:sold for|winning bid|auction ended|auction closed)[^\n]{0,120}?\bon\s+((?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+\d{1,2},?\s+\d{4})/i);
+ if(soldOn){const ms=Date.parse(soldOn[1]);if(Number.isFinite(ms)&&ms<=now+86400000)return new Date(ms).toISOString()}
  const patterns=[
   /\b(?:closed on|sold on|ended on|auction ended|auction closed|bidding ended|sale date|auction date|enddate|closed at)\s*[:\-]?\s*(\d{4}-\d{2}-\d{2}(?:T[\d:.+-Z]+)?)/i,
   /\b(?:closed on|sold on|ended on|auction ended|auction closed|bidding ended|sale date|auction date)\s*[:\-]?\s*((?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+\d{1,2},?\s+\d{4})/i,
@@ -186,7 +189,7 @@ function closedFromDocument(html,title,note){
  const meta=metaContents(html);
  // Small text window around BaT's auction result panel and page-level metadata.
  const around=html.match(/Auction Result[\s\S]{0,2000}/i)?.[0]||'';
- const body=[title,note,meta,around].join(' ').replace(/<[^>]+>/g,' ');
+ const body=[title,note,meta,around,html.slice(0,30000)].join(' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/gi,' ');
  return /\b(?:auction ended|auction result|bid to|sold for|sold at|closed on|reserve not met|winning bid|final bid|auction concluded|unsold|not sold)\b/i.test(body);
 }
 async function verifyCompletedCandidates(items,key,lookbackDays){
